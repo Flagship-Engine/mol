@@ -1,0 +1,12 @@
+[package]
+name = "mol"
+description = "A 3D model loader for Rust."
+authors = ["MLJWare", "Zachary Wells <8bitslime@gmail.com>"]
+keywords = ["wavefront", "obj", "model", "opengl", "graphics"]
+categories = ["graphics", "game-engines"]
+repository = "https://github.com/MLJWare/mol"
+license = "MIT"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
