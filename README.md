@@ -1,2 +1,4 @@
 # mol
-A 3d model loader, written in Rust.
+A 3D model loader, written in Rust.
+
+`cargo test -- --nocapture`
