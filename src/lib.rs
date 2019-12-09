@@ -210,9 +210,9 @@ pub mod obj {
                         .push(Vec3::from(try_take_floats!(3, words, Error::ParseNormal))),
 
                     Some("f") => {
-                        let pos_size = ret.positions.len() / 3;
-                        let uv_size = ret.uvs.len() / 2;
-                        let norm_size = ret.normals.len() / 3;
+                        let pos_size = ret.positions.len();
+                        let uv_size = ret.uvs.len();
+                        let norm_size = ret.normals.len();
                         ret.last_object()
                             .last_group()
                             .faces
