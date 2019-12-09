@@ -7,5 +7,9 @@ fn load_basic() {
         Ok(model) => model,
         Err(err) => panic!("OBJ error: {:?}", err),
     };
-    println!("{:?}", model);
+    // println!("{:?}", model);
+    
+    model.flat_iter().for_each(|(v, u, n)| {
+        println!("{:?} {:?} {:?}", v, u, n);
+    });
 }

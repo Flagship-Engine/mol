@@ -93,6 +93,16 @@ pub mod obj {
             }
         }
 
+        pub fn flat_iter(&self) -> FlatIterator {
+            FlatIterator {
+                obj: &self,
+                object: 0,
+                group: 0,
+                face: 0,
+                vertex: 0
+            }
+        }
+
         /// Returns the last object created or a new unnamed object
         fn last_object(&mut self) -> &mut Object {
             if self.objects.is_empty() {
@@ -152,9 +162,9 @@ pub mod obj {
 
                     //TODO: Much much much nicer face parsing
                     Some("f") => {
-                        let pos_size  = ret.positions.len();
-                        let uv_size   = ret.uvs.len();
-                        let norm_size = ret.normals.len();
+                        let pos_size  = ret.positions.len() / 3;
+                        let uv_size   = ret.uvs.len() / 2;
+                        let norm_size = ret.normals.len() / 3;
                         ret.last_object().last_group()
                             .faces.push(parse_face(pos_size, uv_size, norm_size, &mut words)?);
                     },
@@ -215,6 +225,101 @@ pub mod obj {
             4 => Ok(Face::Quad([temp[0], temp[1], temp[2], temp[3]])),
             x if x > 4 => Ok(Face::NGon(temp)),
             _ => Err(Error::ParseFace)
+        }
+    }
+
+    pub struct FlatIterator<'a> {
+        obj: &'a OBJ,
+        object: usize,
+        group: usize,
+        face: usize,
+        vertex: usize,
+    }
+    impl Iterator for FlatIterator<'_> {
+        type Item = (
+            [f32; 3],
+            [f32; 2],
+            [f32; 3],
+        );
+
+        fn next(&mut self) -> Option<Self::Item> {
+            macro_rules! ret_vertex {
+                ($index:expr) => {{
+                    let pos = [
+                        self.obj.positions[($index[0] - 1) * 3],
+                        self.obj.positions[($index[0] - 1) * 3 + 1],
+                        self.obj.positions[($index[0] - 1) * 3 + 2],
+                    ];
+                    
+                    let uvs =
+                    if $index[1] != 0 {
+                        [ self.obj.uvs[($index[1] - 1) * 2],
+                          self.obj.uvs[($index[1] - 1) * 2 + 1], ]
+                    } else {
+                        [0., 0.]
+                    };
+                    
+                    let norms =
+                    if $index[1] != 0 {
+                        [ self.obj.normals[($index[2] - 1) * 3],
+                          self.obj.normals[($index[2] - 1) * 3 + 1],
+                          self.obj.normals[($index[2] - 1) * 3 + 2], ]
+                    } else {
+                        [0., 0., 0.]
+                    };
+                    
+                    Some((pos, uvs, norms))
+                }};
+            }
+            
+            if let Some(object) = self.obj.objects.get(self.object) {
+                if let Some(group) = object.groups.get(self.group) {
+                    if let Some(face) = group.faces.get(self.face) {
+                        match face {
+                            Face::Tri(ints) => {
+                                if let Some(vertex) = ints.get(self.vertex) {
+                                    self.vertex += 1;
+                                    ret_vertex!(vertex)
+                                } else {
+                                    self.vertex = 0;
+                                    self.face += 1;
+                                    self.next()
+                                }
+                            },
+                            Face::Quad(ints) => {
+                                if let Some(vertex) = ints.get(self.vertex) {
+                                    self.vertex += 1;
+                                    ret_vertex!(vertex)
+                                } else {
+                                    self.vertex = 0;
+                                    self.face += 1;
+                                    self.next()
+                                }
+                            },
+                            Face::NGon(ints) => {
+                                if let Some(vertex) = ints.get(self.vertex) {
+                                    self.vertex += 1;
+                                    ret_vertex!(vertex)
+                                } else {
+                                    self.vertex = 0;
+                                    self.face += 1;
+                                    self.next()
+                                }
+                            }
+                        }
+                    } else {
+                        self.face = 0;
+                        self.group += 1;
+                        self.next()
+                    }
+                } else {
+                    self.group = 0;
+                    self.object += 1;
+                    self.next()
+                }
+            } else {
+                None
+            }
         }
     }
 }
