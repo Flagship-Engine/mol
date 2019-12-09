@@ -1,5 +1,5 @@
-# Blender v2.81 (sub 16) OBJ File: ''
-# www.blender.org
+# A basic OBJ to test simple loading and generation of normals and texture coordinates
+
 o Cube
 v 1.000000 1.000000 -1.000000
 v 1.000000 -1.000000 -1.000000

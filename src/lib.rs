@@ -6,10 +6,14 @@ pub mod obj {
         std::str::FromStr,
     };
 
+
+    //TODO: perhaps save line number for debugging OBJ files
     #[derive(Debug)]
     pub enum Error {
-        Load(std::io::Error),
+        IO(std::io::Error),
         ParseObject,
+        ParseGroup,
+        ParseFace,
         ParseVertex,
         ParseNormal,
         ParseTexcoord,
@@ -29,18 +33,36 @@ pub mod obj {
         pub material: Option<usize>,
     }
 
+    impl Group {
+        pub fn new(name: &str) -> Self {
+            Self {
+                name: name.to_owned(),
+                faces: Vec::new(),
+                material: None
+            }
+        }
+    }
+
     #[derive(Debug)]
     pub struct Object {
         pub name: String,
-        pub meshes: Vec<Group>,
+        pub groups: Vec<Group>,
     }
 
     impl Object {
         pub fn new(name: &str) -> Self {
             Self {
                 name: name.to_owned(),
-                meshes: Vec::new(),
+                groups: Vec::new(),
             }
+        }
+
+        /// Returns the last group or a new unnamed group
+        fn last_group(&mut self) -> &mut Group {
+            if self.groups.is_empty() {
+                self.groups.push(Group::new(""));
+            }
+            self.groups.last_mut().unwrap()
         }
     }
 
@@ -71,9 +93,17 @@ pub mod obj {
             }
         }
 
+        /// Returns the last object created or a new unnamed object
+        fn last_object(&mut self) -> &mut Object {
+            if self.objects.is_empty() {
+                self.objects.push(Object::new(""));
+            }
+            self.objects.last_mut().unwrap()
+        }
+
         pub fn from_path(path: &Path) -> Result<Self, Error> {
             let mut ret = Self::default();
-            let file = File::open(path).map_err(Error::Load)?;
+            let file = File::open(path).map_err(Error::IO)?;
             let reader = BufReader::new(file);
 
             // Begin parsing of the OBJ
@@ -81,7 +111,7 @@ pub mod obj {
             // Modifies the iterator whether it returns ok or err
             macro_rules! try_take_floats {
                 ($count:literal, $iter:expr, $err:expr) => {{
-                    let mut ret = [0f32; $count];
+                    let mut ret = [0_f32; $count];
                     for f in &mut ret {
                         *f = $iter
                             .next()
@@ -92,9 +122,9 @@ pub mod obj {
                 }};
             }
 
-            //TODO: possibly put this in a different function to allow multiple ways of parsing
+            // TODO: possibly put this in a different function to allow multiple ways of parsing
             for line in reader.lines() {
-                let line = line.map_err(Error::Load)?;
+                let line = line.map_err(Error::IO)?;
                 let mut words = line.split_whitespace();
 
                 match words.next() {
@@ -102,6 +132,14 @@ pub mod obj {
                     Some("o") => ret
                         .objects
                         .push(Object::new(words.next().ok_or(Error::ParseObject)?)),
+
+                    // Currently this parser will only take the first argument as the group
+                    // This may or may not change
+                    // Whichever group is last in this list is where faces are appended to
+                    Some("g") => ret
+                        .last_object().groups
+                        .push(Group::new(words.next().ok_or(Error::ParseGroup)?)),
+
                     Some("v") => ret
                         .positions
                         .extend(&try_take_floats!(3, words, Error::ParseVertex)),
@@ -111,10 +149,72 @@ pub mod obj {
                     Some("vn") => ret
                         .normals
                         .extend(&try_take_floats!(3, words, Error::ParseNormal)),
+
+                    //TODO: Much much much nicer face parsing
+                    Some("f") => {
+                        let pos_size  = ret.positions.len();
+                        let uv_size   = ret.uvs.len();
+                        let norm_size = ret.normals.len();
+                        ret.last_object().last_group()
+                            .faces.push(parse_face(pos_size, uv_size, norm_size, &mut words)?);
+                    },
+
                     _ => (),
                 }
             }
             Ok(ret)
+        }
+    }
+
+    fn parse_face(pos_size: usize, uv_size: usize, norm_size: usize, words: &mut std::str::SplitWhitespace) -> Result<Face, Error> {
+        //TODO: avoid unneeded allocations
+        let indices: Vec<Result<[usize; 3], ()>> = words.map(|word| {
+            let mut ret = [0_usize; 3];
+            let mut iter = word.split('/');
+            let pos = i32::from_str(iter.next().ok_or(())?).map_err(|_|())?;
+            ret[0] = if pos < 0 {
+                pos_size as i32 + pos + 1
+            } else {
+                pos
+            } as usize;
+
+            let coord = match iter.next() {
+                //No texture coordinate
+                Some("") => 0,
+                Some(coord) => i32::from_str(coord).map_err(|_|())?,
+                None => 0,
+            };
+            ret[1] = if coord < 0 {
+                uv_size as i32 + coord + 1
+            } else {
+                coord
+            } as usize;
+            
+            let normal = match iter.next() {
+                Some(normal) => i32::from_str(normal).map_err(|_|())?,
+                None => 0,
+            };
+            ret[2] = if normal < 0 {
+                norm_size as i32 + normal + 1
+            } else {
+                normal
+            } as usize;
+            
+            Ok(ret)
+        }).collect();
+        
+        let mut temp = Vec::new();
+        
+        for int in indices.iter() {
+            let ints = int.map_err(|_|Error::ParseFace)?;
+            temp.push(ints);
+        }
+        
+        match temp.len() {
+            3 => Ok(Face::Tri([temp[0], temp[1], temp[2]])),
+            4 => Ok(Face::Quad([temp[0], temp[1], temp[2], temp[3]])),
+            x if x > 4 => Ok(Face::NGon(temp)),
+            _ => Err(Error::ParseFace)
         }
     }
 }
