@@ -4,7 +4,14 @@ pub struct Vec3 {
     pub y: f32,
     pub z: f32,
 }
+impl Vec3 {
+    #[inline(always)]
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self {x, y, z}
+    }
+}
 impl From<[f32; 3]> for Vec3 {
+    #[inline(always)]
     fn from(array: [f32; 3]) -> Self {
         Vec3 { x: array[0], y: array[1], z: array[2] }
     }
@@ -15,7 +22,14 @@ pub struct Vec2 {
     pub x: f32,
     pub y: f32,
 }
+impl Vec2 {
+    #[inline(always)]
+    pub fn new(x: f32, y: f32) -> Self {
+        Self {x, y}
+    }
+}
 impl From<[f32; 2]> for Vec2 {
+    #[inline(always)]
     fn from(array: [f32; 2]) -> Self {
         Vec2 { x: array[0], y: array[1] }
     }
@@ -277,12 +291,12 @@ pub mod obj {
                         let uvs = if vertex[1] > 0 {
                             self.obj.uvs[vertex[1] - 1]
                         } else {
-                            Vec2::from([0.0, 0.0])
+                            Vec2::new(0.0, 0.0)
                         };
                         let norms = if vertex[2] > 0 {
                             self.obj.normals[vertex[2] - 1]
                         } else {
-                            Vec3::from([0.0, 0.0, 0.0])
+                            Vec3::new(0.0, 0.0, 0.0)
                         };
                         return Some((pos, uvs, norms));
                     } else {
