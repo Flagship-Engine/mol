@@ -12,8 +12,8 @@ impl Vec3 {
 }
 impl From<[f32; 3]> for Vec3 {
     #[inline(always)]
-    fn from(array: [f32; 3]) -> Self {
-        Vec3 { x: array[0], y: array[1], z: array[2] }
+    fn from([x, y, z]: [f32; 3]) -> Self {
+        Self { x, y, z }
     }
 }
 
@@ -25,13 +25,13 @@ pub struct Vec2 {
 impl Vec2 {
     #[inline(always)]
     pub fn new(x: f32, y: f32) -> Self {
-        Self {x, y}
+        Self { x, y }
     }
 }
 impl From<[f32; 2]> for Vec2 {
     #[inline(always)]
-    fn from(array: [f32; 2]) -> Self {
-        Vec2 { x: array[0], y: array[1] }
+    fn from([x, y]: [f32; 2]) -> Self {
+        Self { x, y }
     }
 }
 
