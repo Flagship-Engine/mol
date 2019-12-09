@@ -6,7 +6,6 @@ pub mod obj {
         std::str::FromStr,
     };
 
-
     //TODO: perhaps save line number for debugging OBJ files
     #[derive(Debug)]
     pub enum Error {
@@ -26,6 +25,16 @@ pub mod obj {
         NGon(Vec<[usize; 3]>),
     }
 
+    impl Face {
+        fn get_vertex(&self, index: usize) -> Option<&[usize; 3]> {
+            match self {
+                Self::Tri(ints) => ints.get(index),
+                Self::Quad(ints) => ints.get(index),
+                Self::NGon(ints) => ints.get(index),
+            }
+        }
+    }
+
     #[derive(Debug)]
     pub struct Group {
         pub name: String,
@@ -38,7 +47,7 @@ pub mod obj {
             Self {
                 name: name.to_owned(),
                 faces: Vec::new(),
-                material: None
+                material: None,
             }
         }
     }
@@ -57,10 +66,10 @@ pub mod obj {
             }
         }
 
-        /// Returns the last group or a new unnamed group
+        /// Returns the last group or a new default group
         fn last_group(&mut self) -> &mut Group {
             if self.groups.is_empty() {
-                self.groups.push(Group::new(""));
+                self.groups.push(Group::new("default"));
             }
             self.groups.last_mut().unwrap()
         }
@@ -99,14 +108,14 @@ pub mod obj {
                 object: 0,
                 group: 0,
                 face: 0,
-                vertex: 0
+                vertex: 0,
             }
         }
 
-        /// Returns the last object created or a new unnamed object
+        /// Returns the last object created or a new default object
         fn last_object(&mut self) -> &mut Object {
             if self.objects.is_empty() {
-                self.objects.push(Object::new(""));
+                self.objects.push(Object::new("default"));
             }
             self.objects.last_mut().unwrap()
         }
@@ -147,7 +156,8 @@ pub mod obj {
                     // This may or may not change
                     // Whichever group is last in this list is where faces are appended to
                     Some("g") => ret
-                        .last_object().groups
+                        .last_object()
+                        .groups
                         .push(Group::new(words.next().ok_or(Error::ParseGroup)?)),
 
                     Some("v") => ret
@@ -160,14 +170,15 @@ pub mod obj {
                         .normals
                         .extend(&try_take_floats!(3, words, Error::ParseNormal)),
 
-                    //TODO: Much much much nicer face parsing
                     Some("f") => {
-                        let pos_size  = ret.positions.len() / 3;
-                        let uv_size   = ret.uvs.len() / 2;
+                        let pos_size = ret.positions.len() / 3;
+                        let uv_size = ret.uvs.len() / 2;
                         let norm_size = ret.normals.len() / 3;
-                        ret.last_object().last_group()
-                            .faces.push(parse_face(pos_size, uv_size, norm_size, &mut words)?);
-                    },
+                        ret.last_object()
+                            .last_group()
+                            .faces
+                            .push(parse_face(pos_size, uv_size, norm_size, &mut words)?);
+                    }
 
                     _ => (),
                 }
@@ -176,55 +187,48 @@ pub mod obj {
         }
     }
 
-    fn parse_face(pos_size: usize, uv_size: usize, norm_size: usize, words: &mut std::str::SplitWhitespace) -> Result<Face, Error> {
-        //TODO: avoid unneeded allocations
-        let indices: Vec<Result<[usize; 3], ()>> = words.map(|word| {
-            let mut ret = [0_usize; 3];
-            let mut iter = word.split('/');
-            let pos = i32::from_str(iter.next().ok_or(())?).map_err(|_|())?;
-            ret[0] = if pos < 0 {
-                pos_size as i32 + pos + 1
-            } else {
-                pos
-            } as usize;
-
-            let coord = match iter.next() {
-                //No texture coordinate
-                Some("") => 0,
-                Some(coord) => i32::from_str(coord).map_err(|_|())?,
-                None => 0,
+    fn parse_face(
+        pos_size: usize,
+        uv_size: usize,
+        norm_size: usize,
+        words: &mut std::str::SplitWhitespace,
+    ) -> Result<Face, Error> {
+        macro_rules! calc_index {
+            ($index:expr, $count:expr) => {
+                if $index < 0 {
+                    $count as i32 + $index + 1
+                } else {
+                    $index
+                } as usize
             };
-            ret[1] = if coord < 0 {
-                uv_size as i32 + coord + 1
-            } else {
-                coord
-            } as usize;
-            
-            let normal = match iter.next() {
-                Some(normal) => i32::from_str(normal).map_err(|_|())?,
-                None => 0,
-            };
-            ret[2] = if normal < 0 {
-                norm_size as i32 + normal + 1
-            } else {
-                normal
-            } as usize;
-            
-            Ok(ret)
-        }).collect();
-        
-        let mut temp = Vec::new();
-        
-        for int in indices.iter() {
-            let ints = int.map_err(|_|Error::ParseFace)?;
-            temp.push(ints);
         }
-        
-        match temp.len() {
-            3 => Ok(Face::Tri([temp[0], temp[1], temp[2]])),
-            4 => Ok(Face::Quad([temp[0], temp[1], temp[2], temp[3]])),
-            x if x > 4 => Ok(Face::NGon(temp)),
-            _ => Err(Error::ParseFace)
+
+        let indices = words
+            .map(|word| {
+                let mut iter = word.split('/');
+                let pos = i32::from_str(iter.next().ok_or(Error::ParseFace)?)
+                    .map_err(|_| Error::ParseFace)?;
+                let coord = match iter.next() {
+                    None | Some("") => 0,
+                    Some(coord) => i32::from_str(coord).map_err(|_| Error::ParseFace)?,
+                };
+                let normal = match iter.next() {
+                    Some(normal) => i32::from_str(normal).map_err(|_| Error::ParseFace)?,
+                    None => 0,
+                };
+                Ok([
+                    calc_index!(pos, pos_size),
+                    calc_index!(coord, uv_size),
+                    calc_index!(normal, norm_size),
+                ])
+            })
+            .collect::<Result<Vec<[usize; 3]>, Error>>()?;
+
+        match indices.len() {
+            0..=2 => Err(Error::ParseFace),
+            3 => Ok(Face::Tri([indices[0], indices[1], indices[2]])),
+            4 => Ok(Face::Quad([indices[0], indices[1], indices[2], indices[3]])),
+            _ => Ok(Face::NGon(indices)),
         }
     }
 
@@ -236,90 +240,50 @@ pub mod obj {
         vertex: usize,
     }
     impl Iterator for FlatIterator<'_> {
-        type Item = (
-            [f32; 3],
-            [f32; 2],
-            [f32; 3],
-        );
+        type Item = ([f32; 3], [f32; 2], [f32; 3]);
 
         fn next(&mut self) -> Option<Self::Item> {
-            macro_rules! ret_vertex {
-                ($index:expr) => {{
-                    let pos = [
-                        self.obj.positions[($index[0] - 1) * 3],
-                        self.obj.positions[($index[0] - 1) * 3 + 1],
-                        self.obj.positions[($index[0] - 1) * 3 + 2],
-                    ];
-                    
-                    let uvs =
-                    if $index[1] != 0 {
-                        [ self.obj.uvs[($index[1] - 1) * 2],
-                          self.obj.uvs[($index[1] - 1) * 2 + 1], ]
+            let object = self.obj.objects.get(self.object)?;
+            if let Some(group) = object.groups.get(self.group) {
+                if let Some(face) = group.faces.get(self.face) {
+                    if let Some(vertex) = face.get_vertex(self.vertex) {
+                        self.vertex += 1;
+                        let pos = [
+                            self.obj.positions[(vertex[0] - 1) * 3],
+                            self.obj.positions[(vertex[0] - 1) * 3 + 1],
+                            self.obj.positions[(vertex[0] - 1) * 3 + 2],
+                        ];
+                        let uvs = if vertex[1] != 0 {
+                            [
+                                self.obj.uvs[(vertex[1] - 1) * 2],
+                                self.obj.uvs[(vertex[1] - 1) * 2 + 1],
+                            ]
+                        } else {
+                            [0.0, 0.0]
+                        };
+                        let norms = if vertex[2] != 0 {
+                            [
+                                self.obj.normals[(vertex[2] - 1) * 3],
+                                self.obj.normals[(vertex[2] - 1) * 3 + 1],
+                                self.obj.normals[(vertex[2] - 1) * 3 + 2],
+                            ]
+                        } else {
+                            [0.0, 0.0, 0.0]
+                        };
+                        return Some((pos, uvs, norms));
                     } else {
-                        [0., 0.]
-                    };
-                    
-                    let norms =
-                    if $index[1] != 0 {
-                        [ self.obj.normals[($index[2] - 1) * 3],
-                          self.obj.normals[($index[2] - 1) * 3 + 1],
-                          self.obj.normals[($index[2] - 1) * 3 + 2], ]
-                    } else {
-                        [0., 0., 0.]
-                    };
-                    
-                    Some((pos, uvs, norms))
-                }};
-            }
-            
-            if let Some(object) = self.obj.objects.get(self.object) {
-                if let Some(group) = object.groups.get(self.group) {
-                    if let Some(face) = group.faces.get(self.face) {
-                        match face {
-                            Face::Tri(ints) => {
-                                if let Some(vertex) = ints.get(self.vertex) {
-                                    self.vertex += 1;
-                                    ret_vertex!(vertex)
-                                } else {
-                                    self.vertex = 0;
-                                    self.face += 1;
-                                    self.next()
-                                }
-                            },
-                            Face::Quad(ints) => {
-                                if let Some(vertex) = ints.get(self.vertex) {
-                                    self.vertex += 1;
-                                    ret_vertex!(vertex)
-                                } else {
-                                    self.vertex = 0;
-                                    self.face += 1;
-                                    self.next()
-                                }
-                            },
-                            Face::NGon(ints) => {
-                                if let Some(vertex) = ints.get(self.vertex) {
-                                    self.vertex += 1;
-                                    ret_vertex!(vertex)
-                                } else {
-                                    self.vertex = 0;
-                                    self.face += 1;
-                                    self.next()
-                                }
-                            }
-                        }
-                    } else {
-                        self.face = 0;
-                        self.group += 1;
-                        self.next()
+                        self.vertex = 0;
+                        self.face += 1;
                     }
                 } else {
-                    self.group = 0;
-                    self.object += 1;
-                    self.next()
+                    self.face = 0;
+                    self.group += 1;
                 }
             } else {
-                None
+                self.group = 0;
+                self.object += 1;
             }
+            self.next()
         }
     }
 }
