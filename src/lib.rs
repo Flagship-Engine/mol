@@ -1,3 +1,9 @@
+//! A self-contained 3D model parser/loader, written entirely in Rust.
+
+/// A basic 3-dimensional vector.
+/// Used by [`OBJ`] to represent vertex positions and normals.
+///
+/// [`OBJ`]: obj/struct.OBJ.html
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vec3 {
     pub x: f32,
@@ -5,9 +11,10 @@ pub struct Vec3 {
     pub z: f32,
 }
 impl Vec3 {
+    /// Constructs a new 3-dimensional vector using the provided values.
     #[inline(always)]
     pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self {x, y, z}
+        Self { x, y, z }
     }
 }
 impl From<[f32; 3]> for Vec3 {
@@ -17,12 +24,17 @@ impl From<[f32; 3]> for Vec3 {
     }
 }
 
+/// A basic 2-dimensional vector.
+/// This type is used by [`OBJ`] to represent texture UVs.
+///
+/// [`OBJ`]: obj/struct.OBJ.html
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
 }
 impl Vec2 {
+    /// Constructs a new 2-dimensional vector using the provided values.
     #[inline(always)]
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
@@ -35,17 +47,20 @@ impl From<[f32; 2]> for Vec2 {
     }
 }
 
+/// Everything related to the Wavefront OBJ file format.
 pub mod obj {
     use {
+        super::{Vec2, Vec3},
         std::fs::File,
         std::io::{BufRead, BufReader},
         std::path::Path,
         std::str::FromStr,
-        
-        super::{Vec3, Vec2}
     };
 
     //TODO: perhaps save line number for debugging OBJ files
+    /// Errors that may occur doing [`OBJ`] parsing.
+    ///
+    /// [`OBJ`]: obj/struct.OBJ.html
     #[derive(Debug)]
     pub enum Error {
         IO(std::io::Error),
@@ -57,10 +72,16 @@ pub mod obj {
         ParseTexcoord,
     }
 
+    /// Represents a single face of a given [`Object`].
+    ///
+    /// [`Object`]: struct.Object.html
     #[derive(Debug)]
     pub enum Face {
+        // Triangulated face
         Tri([[usize; 3]; 3]),
+        // Non-triangulated quad
         Quad([[usize; 3]; 4]),
+        // Non-triangulated polygon
         NGon(Vec<[usize; 3]>),
     }
 
@@ -74,14 +95,25 @@ pub mod obj {
         }
     }
 
+    /// Represents a group of an [`Object`].
+    ///
+    /// [`Object`]: struct.Object.html
     #[derive(Debug)]
     pub struct Group {
+        /// name of the group
         pub name: String,
+        /// the [`Face`]s of the group
+        ///
+        /// [`Face`]: struct.Face.html
         pub faces: Vec<Face>,
+        /// optional [`Material`] id
+        ///
+        /// [`Material`]: struct.Material.html
         pub material: Option<usize>,
     }
 
     impl Group {
+        /// Constructs an empty group with the given name.
         pub fn new(name: &str) -> Self {
             Self {
                 name: name.to_owned(),
@@ -91,13 +123,21 @@ pub mod obj {
         }
     }
 
+    /// Represents a object in an [`OBJ`].
+    ///
+    /// [`OBJ`]: struct.OBJ.html
     #[derive(Debug)]
     pub struct Object {
+        /// name of the object
         pub name: String,
+        /// [`Group`]s contained in the object
+        ///
+        /// [`Group`]: struct.Group.html
         pub groups: Vec<Group>,
     }
 
     impl Object {
+        /// Constructs an empty object with a given name.
         pub fn new(name: &str) -> Self {
             Self {
                 name: name.to_owned(),
@@ -105,7 +145,10 @@ pub mod obj {
             }
         }
 
-        /// Returns the last group or a new default group
+        /// Returns the last [`Group`] in the object, creating a new default
+        /// group if needed.
+        ///
+        /// [`Group`]: struct.Group.html
         fn last_group(&mut self) -> &mut Group {
             if self.groups.is_empty() {
                 self.groups.push(Group::new("default"));
@@ -114,24 +157,49 @@ pub mod obj {
         }
     }
 
+    /// Represents the material of an [`OBJ`].
+    ///
+    /// [`OBJ`]: struct.OBJ.html
     #[derive(Debug)]
     pub struct Material {
         pub name: String,
     }
 
+    /// Represents the content of an OBJ file.
     #[derive(Debug, Default)]
     pub struct OBJ {
+        /// vertex positions
         pub positions: Vec<Vec3>,
+        // vertex normals
         pub normals: Vec<Vec3>,
+        // texture UVs
         pub uvs: Vec<Vec2>,
 
+        /// [`Object`]s contained in the OBJ
+        ///
+        /// [`Object`]: struct.Object.html
         pub objects: Vec<Object>,
+        /// [`Material`]s used by the OBJ
+        ///
+        /// [`Material`]: struct.Material.html
         pub materials: Vec<Material>,
     }
 
     impl OBJ {
-        /// Creates and empty OBJ with reserved capacity for vertices
-        pub fn new(capacity: usize) -> Self {
+        /// Constructs an empty OBJ.
+        pub fn new() -> Self {
+            Self {
+                positions: Vec::new(),
+                normals: Vec::new(),
+                uvs: Vec::new(),
+                objects: Vec::new(),
+                materials: Vec::new(),
+            }
+        }
+
+        /// Constructs an empty OBJ with reserved capacity for vertices,
+        /// normals, and uvs.
+        pub fn with_capacity(capacity: usize) -> Self {
             Self {
                 positions: Vec::with_capacity(capacity),
                 normals: Vec::with_capacity(capacity),
@@ -141,6 +209,22 @@ pub mod obj {
             }
         }
 
+        /// Creates an iterator over all the vertex information stored in the
+        /// `OBJ`, obtained by flattening the internal hierarchy of [`Object`]s
+        /// and [`Group`]s.
+        ///
+        /// This method provides an convenient way of processing all the vertex
+        /// information  of a given `OBJ`.
+        ///
+        /// Combined with [`map`], this iterator can be used to access just the
+        /// part of the vertex information needed for a given situation, such as
+        /// just vertex coordinates, normals or texture coordinates.
+        ///
+        /// [`OBJ`]: struct.OBJ.html
+        /// [`flat_iter`]: struct.OBJ.html#method.flat_iter
+        /// [`Object`]: struct.Object.html
+        /// [`Group`]: struct.Group.html
+        /// [`map`]: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
         pub fn flat_iter(&self) -> FlatIterator {
             FlatIterator {
                 obj: &self,
@@ -151,7 +235,9 @@ pub mod obj {
             }
         }
 
-        /// Returns the last object created or a new default object
+        /// Returns the last [`Object`] created, creating a default if needed.
+        ///
+        /// [`Object`]: struct.Object.html
         fn last_object(&mut self) -> &mut Object {
             if self.objects.is_empty() {
                 self.objects.push(Object::new("default"));
@@ -159,6 +245,17 @@ pub mod obj {
             self.objects.last_mut().unwrap()
         }
 
+        /// Constructs an `OBJ` based on the content of the file referenced by
+        /// the given [`Path`].
+        ///
+        /// If an error occurs doing loading or parsing of the `OBJ`, a
+        /// [`Result`]`::Err` containing the given [`obj::Error`] is returned.
+        /// Otherwise, a `Result::Ok` containing the resulting `OBJ` is
+        /// returned.
+        ///
+        /// [`Path`]: https://doc.rust-lang.org/std/path/struct.Path.html
+        /// [`Result`]: https://doc.rust-lang.org/std/result/enum.Result.html
+        /// [`obj::Error`]: enum.Error.html
         pub fn from_path(path: &Path) -> Result<Self, Error> {
             let mut ret = Self::default();
             let file = File::open(path).map_err(Error::IO)?;
@@ -271,6 +368,16 @@ pub mod obj {
         }
     }
 
+    /// An iterator over all the vertex information stored in an [`OBJ`],
+    /// obtained by flattening the internal hierarchy of [`Object`]s and [`Group`]s.
+    ///
+    /// This `struct` is created by the [`flat_iter`] method on `OBJ`.
+    /// See its documentation for more.
+    ///
+    /// [`OBJ`]: struct.OBJ.html
+    /// [`flat_iter`]: struct.OBJ.html#method.flat_iter
+    /// [`Object`]: struct.Object.html
+    /// [`Group`]: struct.Group.html
     pub struct FlatIterator<'a> {
         obj: &'a OBJ,
         object: usize,
