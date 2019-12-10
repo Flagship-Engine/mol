@@ -1,9 +1,48 @@
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Vec3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+impl Vec3 {
+    #[inline(always)]
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self {x, y, z}
+    }
+}
+impl From<[f32; 3]> for Vec3 {
+    #[inline(always)]
+    fn from([x, y, z]: [f32; 3]) -> Self {
+        Self { x, y, z }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Vec2 {
+    pub x: f32,
+    pub y: f32,
+}
+impl Vec2 {
+    #[inline(always)]
+    pub fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+}
+impl From<[f32; 2]> for Vec2 {
+    #[inline(always)]
+    fn from([x, y]: [f32; 2]) -> Self {
+        Self { x, y }
+    }
+}
+
 pub mod obj {
     use {
         std::fs::File,
         std::io::{BufRead, BufReader},
         std::path::Path,
         std::str::FromStr,
+        
+        super::{Vec3, Vec2}
     };
 
     //TODO: perhaps save line number for debugging OBJ files
@@ -82,9 +121,9 @@ pub mod obj {
 
     #[derive(Debug, Default)]
     pub struct OBJ {
-        pub positions: Vec<f32>,
-        pub normals: Vec<f32>,
-        pub uvs: Vec<f32>,
+        pub positions: Vec<Vec3>,
+        pub normals: Vec<Vec3>,
+        pub uvs: Vec<Vec2>,
 
         pub objects: Vec<Object>,
         pub materials: Vec<Material>,
@@ -162,18 +201,18 @@ pub mod obj {
 
                     Some("v") => ret
                         .positions
-                        .extend(&try_take_floats!(3, words, Error::ParseVertex)),
+                        .push(Vec3::from(try_take_floats!(3, words, Error::ParseVertex))),
                     Some("vt") => ret
                         .uvs
-                        .extend(&try_take_floats!(2, words, Error::ParseTexcoord)),
+                        .push(Vec2::from(try_take_floats!(2, words, Error::ParseTexcoord))),
                     Some("vn") => ret
                         .normals
-                        .extend(&try_take_floats!(3, words, Error::ParseNormal)),
+                        .push(Vec3::from(try_take_floats!(3, words, Error::ParseNormal))),
 
                     Some("f") => {
-                        let pos_size = ret.positions.len() / 3;
-                        let uv_size = ret.uvs.len() / 2;
-                        let norm_size = ret.normals.len() / 3;
+                        let pos_size = ret.positions.len();
+                        let uv_size = ret.uvs.len();
+                        let norm_size = ret.normals.len();
                         ret.last_object()
                             .last_group()
                             .faces
@@ -240,7 +279,7 @@ pub mod obj {
         vertex: usize,
     }
     impl Iterator for FlatIterator<'_> {
-        type Item = ([f32; 3], [f32; 2], [f32; 3]);
+        type Item = (Vec3, Vec2, Vec3);
 
         fn next(&mut self) -> Option<Self::Item> {
             let object = self.obj.objects.get(self.object)?;
@@ -248,27 +287,16 @@ pub mod obj {
                 if let Some(face) = group.faces.get(self.face) {
                     if let Some(vertex) = face.get_vertex(self.vertex) {
                         self.vertex += 1;
-                        let pos = [
-                            self.obj.positions[(vertex[0] - 1) * 3],
-                            self.obj.positions[(vertex[0] - 1) * 3 + 1],
-                            self.obj.positions[(vertex[0] - 1) * 3 + 2],
-                        ];
-                        let uvs = if vertex[1] != 0 {
-                            [
-                                self.obj.uvs[(vertex[1] - 1) * 2],
-                                self.obj.uvs[(vertex[1] - 1) * 2 + 1],
-                            ]
+                        let pos = self.obj.positions[vertex[0] - 1];
+                        let uvs = if vertex[1] > 0 {
+                            self.obj.uvs[vertex[1] - 1]
                         } else {
-                            [0.0, 0.0]
+                            Vec2::new(0.0, 0.0)
                         };
-                        let norms = if vertex[2] != 0 {
-                            [
-                                self.obj.normals[(vertex[2] - 1) * 3],
-                                self.obj.normals[(vertex[2] - 1) * 3 + 1],
-                                self.obj.normals[(vertex[2] - 1) * 3 + 2],
-                            ]
+                        let norms = if vertex[2] > 0 {
+                            self.obj.normals[vertex[2] - 1]
                         } else {
-                            [0.0, 0.0, 0.0]
+                            Vec3::new(0.0, 0.0, 0.0)
                         };
                         return Some((pos, uvs, norms));
                     } else {
