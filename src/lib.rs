@@ -1,4 +1,35 @@
-//! A self-contained 3D model parser/loader, written entirely in Rust.
+//! A self-contained 3D model parser/loader, written entirely in Rust.  
+//! Only Wavefront OBJ models are supported currently, but this will be expanded upon in the future.
+//!
+//!# Example usage
+//! ```
+//! use mol::obj;
+//! use std::path::Path;
+//! 
+//! let model = obj::OBJ::from_path(Path::new("tests/cube.obj"));
+//! 
+//! match model {
+//!     Ok(model) => {
+//!         //Loaded the OBJ successfully!
+//!         //Printing all objects and groups in an OBJ file
+//!         for object in model.objects.iter() {
+//!             println!("Object: {}", object.name);
+//!             for group in object.groups.iter() {
+//!                 println!("  Group: {}", group.name);
+//!             }
+//!         }
+//!         //Printing all vertices in an OBJ file
+//!         for (pos, uv, norm) in model.flat_iter() {
+//!             println!("Vertex position: {}", pos);
+//!             println!("Vertex texture coordinate: {}", uv);
+//!             println!("Vertex normal: {}", norm);
+//!         }
+//!     },
+//!     Err(err) => panic!("Failed to load OBJ: {:?}", err),
+//! }
+//! ```
+
+use std::fmt;
 
 /// A basic 3-dimensional vector.
 /// Used by [`OBJ`] to represent vertex positions and normals.
@@ -23,9 +54,14 @@ impl From<[f32; 3]> for Vec3 {
         Self { x, y, z }
     }
 }
+impl fmt::Display for Vec3 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}, {}, {}]", self.x, self.y, self.z)
+    }
+}
 
 /// A basic 2-dimensional vector.
-/// This type is used by [`OBJ`] to represent texture UVs.
+/// Used by [`OBJ`] to represent texture coordinates.
 ///
 /// [`OBJ`]: obj/struct.OBJ.html
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,6 +82,11 @@ impl From<[f32; 2]> for Vec2 {
         Self { x, y }
     }
 }
+impl fmt::Display for Vec2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}, {}]", self.x, self.y)
+    }
+}
 
 /// Everything related to the Wavefront OBJ file format.
 pub mod obj {
@@ -58,7 +99,7 @@ pub mod obj {
     };
 
     //TODO: perhaps save line number for debugging OBJ files
-    /// Errors that may occur doing [`OBJ`] parsing.
+    /// Errors that may occur during [`OBJ`] parsing.
     ///
     /// [`OBJ`]: obj/struct.OBJ.html
     #[derive(Debug)]
@@ -72,7 +113,7 @@ pub mod obj {
         ParseTexcoord,
     }
 
-    /// Represents a single face of a given [`Object`].
+    /// Represents a single face of an [`Object`].
     ///
     /// [`Object`]: struct.Object.html
     #[derive(Debug)]
@@ -95,7 +136,7 @@ pub mod obj {
         }
     }
 
-    /// Represents a group of an [`Object`].
+    /// Represents a group within an [`Object`].
     ///
     /// [`Object`]: struct.Object.html
     #[derive(Debug)]
@@ -123,7 +164,7 @@ pub mod obj {
         }
     }
 
-    /// Represents a object in an [`OBJ`].
+    /// Represents an object within an [`OBJ`].
     ///
     /// [`OBJ`]: struct.OBJ.html
     #[derive(Debug)]
@@ -157,9 +198,7 @@ pub mod obj {
         }
     }
 
-    /// Represents the material of an [`OBJ`].
-    ///
-    /// [`OBJ`]: struct.OBJ.html
+    /// Represents a material in an mtl file.
     #[derive(Debug)]
     pub struct Material {
         pub name: String,
@@ -170,16 +209,16 @@ pub mod obj {
     pub struct OBJ {
         /// vertex positions
         pub positions: Vec<Vec3>,
-        // vertex normals
+        /// vertex normals
         pub normals: Vec<Vec3>,
-        // texture UVs
+        /// texture coordinates
         pub uvs: Vec<Vec2>,
 
         /// [`Object`]s contained in the OBJ
         ///
         /// [`Object`]: struct.Object.html
         pub objects: Vec<Object>,
-        /// [`Material`]s used by the OBJ
+        /// [`Material`]s loaded from material libraries provided with the `mtllib` directive
         ///
         /// [`Material`]: struct.Material.html
         pub materials: Vec<Material>,
@@ -213,12 +252,37 @@ pub mod obj {
         /// `OBJ`, obtained by flattening the internal hierarchy of [`Object`]s
         /// and [`Group`]s.
         ///
-        /// This method provides an convenient way of processing all the vertex
-        /// information  of a given `OBJ`.
+        /// This method provides a convenient way of processing all the vertex
+        /// information of a given `OBJ`.
         ///
         /// Combined with [`map`], this iterator can be used to access just the
         /// part of the vertex information needed for a given situation, such as
-        /// just vertex coordinates, normals or texture coordinates.
+        /// just vertex coordinates, normals, or texture coordinates.
+        ///
+        ///# Examples
+        /// ```
+        /// use mol::obj::*;
+        /// use std::path::Path;
+        ///
+        /// let obj = OBJ::from_path(Path::new("tests/cube.obj")).unwrap();
+        ///
+        /// //Printing all vertices in an OBJ file
+        /// for (pos, uv, norm) in obj.flat_iter() {
+        ///     println!("Vertex position: {}", pos);
+        ///     println!("Vertex texture coordinate: {}", uv);
+        ///     println!("Vertex normal: {}", norm);
+        /// }
+        /// ```
+        /// Making use of [`map`] to ignore unnecessary data:
+        /// ```
+        ///# use mol::obj::*;
+        ///# use std::path::Path;
+        /// let obj = OBJ::from_path(Path::new("tests/cube.obj")).unwrap();
+        ///
+        /// for normal in obj.flat_iter().map(|(_, _, norm)| norm) {
+        ///     // ...
+        /// }
+        /// ```
         ///
         /// [`OBJ`]: struct.OBJ.html
         /// [`flat_iter`]: struct.OBJ.html#method.flat_iter
@@ -248,7 +312,7 @@ pub mod obj {
         /// Constructs an `OBJ` based on the content of the file referenced by
         /// the given [`Path`].
         ///
-        /// If an error occurs doing loading or parsing of the `OBJ`, a
+        /// If an error occurs during loading or parsing of the `OBJ`, a
         /// [`Result`]`::Err` containing the given [`obj::Error`] is returned.
         /// Otherwise, a `Result::Ok` containing the resulting `OBJ` is
         /// returned.
@@ -371,8 +435,8 @@ pub mod obj {
     /// An iterator over all the vertex information stored in an [`OBJ`],
     /// obtained by flattening the internal hierarchy of [`Object`]s and [`Group`]s.
     ///
-    /// This `struct` is created by the [`flat_iter`] method on `OBJ`.
-    /// See its documentation for more.
+    /// `FlatIterators` are created by the [`flat_iter`] method on [`OBJ`].
+    /// See its documentation for more information.
     ///
     /// [`OBJ`]: struct.OBJ.html
     /// [`flat_iter`]: struct.OBJ.html#method.flat_iter
@@ -386,6 +450,7 @@ pub mod obj {
         vertex: usize,
     }
     impl Iterator for FlatIterator<'_> {
+        // Position, coordinate, normal
         type Item = (Vec3, Vec2, Vec3);
 
         fn next(&mut self) -> Option<Self::Item> {
