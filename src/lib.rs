@@ -1,13 +1,13 @@
-//! A self-contained 3D model parser/loader, written entirely in Rust.  
+//! A self-contained 3D model parser/loader, written entirely in Rust.
 //! Only Wavefront OBJ models are supported currently, but this will be expanded upon in the future.
 //!
 //!# Example usage
 //! ```
 //! use mol::obj;
 //! use std::path::Path;
-//! 
+//!
 //! let model = obj::OBJ::from_path(Path::new("tests/cube.obj"));
-//! 
+//!
 //! match model {
 //!     Ok(model) => {
 //!         //Loaded the OBJ successfully!
@@ -29,74 +29,20 @@
 //! }
 //! ```
 
-use std::fmt;
-
-/// A basic 3-dimensional vector.
-/// Used by [`OBJ`] to represent vertex positions and normals.
-///
-/// [`OBJ`]: obj/struct.OBJ.html
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Vec3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-impl Vec3 {
-    /// Constructs a new 3-dimensional vector using the provided values.
-    #[inline(always)]
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-}
-impl From<[f32; 3]> for Vec3 {
-    #[inline(always)]
-    fn from([x, y, z]: [f32; 3]) -> Self {
-        Self { x, y, z }
-    }
-}
-impl fmt::Display for Vec3 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}, {}, {}]", self.x, self.y, self.z)
-    }
-}
-
-/// A basic 2-dimensional vector.
-/// Used by [`OBJ`] to represent texture coordinates.
-///
-/// [`OBJ`]: obj/struct.OBJ.html
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Vec2 {
-    pub x: f32,
-    pub y: f32,
-}
-impl Vec2 {
-    /// Constructs a new 2-dimensional vector using the provided values.
-    #[inline(always)]
-    pub fn new(x: f32, y: f32) -> Self {
-        Self { x, y }
-    }
-}
-impl From<[f32; 2]> for Vec2 {
-    #[inline(always)]
-    fn from([x, y]: [f32; 2]) -> Self {
-        Self { x, y }
-    }
-}
-impl fmt::Display for Vec2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}, {}]", self.x, self.y)
-    }
-}
+pub mod math;
+pub mod triangulate;
 
 /// Everything related to the Wavefront OBJ file format.
 pub mod obj {
     use {
-        super::{Vec2, Vec3},
+        crate::math::{Vec2, Vec3},
         std::fs::File,
         std::io::{BufRead, BufReader},
         std::path::Path,
         std::str::FromStr,
     };
+
+    pub type Vertex = [usize; 3];
 
     //TODO: perhaps save line number for debugging OBJ files
     /// Errors that may occur during [`OBJ`] parsing.
@@ -119,15 +65,15 @@ pub mod obj {
     #[derive(Debug)]
     pub enum Face {
         // Triangulated face
-        Tri([[usize; 3]; 3]),
+        Tri([Vertex; 3]),
         // Non-triangulated quad
-        Quad([[usize; 3]; 4]),
+        Quad([Vertex; 4]),
         // Non-triangulated polygon
-        NGon(Vec<[usize; 3]>),
+        NGon(Vec<Vertex>),
     }
 
     impl Face {
-        fn get_vertex(&self, index: usize) -> Option<&[usize; 3]> {
+        fn get_vertex(&self, index: usize) -> Option<&Vertex> {
             match self {
                 Self::Tri(ints) => ints.get(index),
                 Self::Quad(ints) => ints.get(index),
@@ -362,13 +308,13 @@ pub mod obj {
 
                     Some("v") => ret
                         .positions
-                        .push(Vec3::from(try_take_floats!(3, words, Error::ParseVertex))),
+                        .push(try_take_floats!(3, words, Error::ParseVertex).into()),
                     Some("vt") => ret
                         .uvs
-                        .push(Vec2::from(try_take_floats!(2, words, Error::ParseTexcoord))),
+                        .push(try_take_floats!(2, words, Error::ParseTexcoord).into()),
                     Some("vn") => ret
                         .normals
-                        .push(Vec3::from(try_take_floats!(3, words, Error::ParseNormal))),
+                        .push(try_take_floats!(3, words, Error::ParseNormal).into()),
 
                     Some("f") => {
                         let pos_size = ret.positions.len();
@@ -422,7 +368,7 @@ pub mod obj {
                     calc_index!(normal, norm_size),
                 ])
             })
-            .collect::<Result<Vec<[usize; 3]>, Error>>()?;
+            .collect::<Result<Vec<Vertex>, Error>>()?;
 
         match indices.len() {
             0..=2 => Err(Error::ParseFace),
